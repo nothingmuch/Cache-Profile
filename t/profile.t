@@ -13,6 +13,7 @@ BEGIN {
         require Cache::Ref::FIFO;
         require Cache::Ref::LRU;
         require Cache::Ref::CART;
+        require Cache::Ref::CLOCK;
     } catch {
         if ( m{^Can't locate Cache/Ref/(?:FIFO|LRU)\.pm} ) {
             plan skip_all => "Cache::Ref::FIFO and Cache::Ref::LRU required";
@@ -24,6 +25,7 @@ BEGIN {
 
 use ok 'Cache::Profile';
 use ok 'Cache::Profile::CorrelateMissTiming';
+use ok 'Cache::Profile::Compare';
 
 # this uses a weighted key set
 my @keys = shuffle( ( map { 1 .. $_ } 1 .. 25 ), 1 .. 200 );
@@ -59,60 +61,53 @@ my $p_cart = Cache::Profile->new(
     cache => Cache::Ref::CART->new( size => $size ),
 );
 
-my @more_caches;
+my @more = ( Cache::Ref::CLOCK->new( size => $size ) );
 
 try {
     require CHI;
-    push @more_caches, CHI->new( driver => 'Memory', datastore => {}, max_size => $size );
-} catch {
-    warn $_;
+    #push @more, CHI->new( driver => 'Memory', datastore => {}, max_size => $size );
+    push @more, CHI->new( driver => 'Memory', datastore => {} ); # max size seems broken
 };
 
 try {
     require Cache::FastMmap;
-    push @more_caches, Cache::FastMmap->new(cache_size => '1k');
-} catch {
-    warn $_;
+    push @more, Cache::FastMmap->new(cache_size => '1k');
 };
 
 try {
     require Cache::Bounded;
-    push @more_caches, Cache::Bounded->new({ interval => 5, size => $size });
-} catch {
-    warn $_;
+    push @more, Cache::Bounded->new({ interval => 5, size => $size });
 };
 
 try {
     require Cache::Memory;
-    push @more_caches, Cache::Memory->new();
-} catch {
-    warn $_;
+    push @more, Cache::Memory->new();
 };
 
 try {
     require Cache::MemoryCache;
-    push @more_caches, Cache::MemoryCache->new();
-} catch {
-    warn $_;
+    push @more, Cache::MemoryCache->new();
 };
 
-my @more = map { Cache::Profile::CorrelateMissTiming->new( cache => $_ ) } @more_caches;
+my $cmp = Cache::Profile::Compare->new( caches => \@more );
 
-my ( $get, $set );
+my ( $get, $set ) = ( 0, 0 );
 
 my $start = clock();
 my $end = $start + 0.3 * ( 3 + @more );
 
 sub _waste_time {
     my @foo;
-    push @foo, [ 1 .. 100 ] for 1 .. 100;
+    push @foo, [ 1 .. 100 ] for 1 .. 20;
 }
 
 my $i;
 until ( (clock() > $end) and $i > @keys * 3 ) {
+    pass("making progress") if $get % ( @keys / 3 ) == 0; # looks better when the numbers are moving ;-)
+
     my $key = $keys[rand > 0.7 ? int rand @keys : $i++ % @keys];
 
-    foreach my $cache ( $p_fifo, $p_lru, @more ) { 
+    foreach my $cache ( $p_fifo, $p_lru, $cmp ) {
         unless ( $cache->get($key) ) {
             _waste_time();
             $cache->set( $key => rand > 0.5 ? { foo => "bar", data => [ 1 .. 10 ] } : "blahblah" );
@@ -125,7 +120,7 @@ until ( (clock() > $end) and $i > @keys * 3 ) {
         _waste_time();
         return rand > 0.5 ? { foo => "bar", data => [ 1 .. 10 ] } : "blahblah";
     });
-    
+
 }
 
 is( $p_cart->call_count_get, $get, "get count" );
@@ -139,19 +134,15 @@ like( $report, qr/hit rate/i, "report contains 'hit rate'" );
 like( $report, qr/${\ $p_cart->hit_count }/, "contains hit count" );
 like( $report, qr/${\ $p_cart->query_count }/, "contains query count" );
 
-foreach my $cache ( $p_cart, $p_lru, @more ) {
-    unless  ( $cache->cache->isa("CHI::Driver") ) {
-        # CHI expires too eagerly... this basically just makes sure some data
-        # was actually proxied into the cache
-        my $hit;
-        foreach my $key ( @keys ) {
-            if ( defined $cache->get($key) ) {
-                $hit++;
-                last;
-            }
+foreach my $cache ( $p_cart, $p_lru, $cmp->profiles ) {
+    my $hit;
+    foreach my $key ( @keys ) {
+        if ( defined $cache->get($key) ) {
+            $hit++;
+            last;
         }
-        ok($hit, "at least one key in cache (" . ref($cache->cache) . ")");
     }
+    ok($hit, "at least one key in cache (" . $cache->moniker . ")");
 
     cmp_ok( $p_cart->hit_rate, '>=', ( ( $size / @keys ) / 2), "hit rate bigger than minimum" );
 

@@ -4,6 +4,7 @@ use Moose;
 use Carp;
 use Time::HiRes qw(tv_interval gettimeofday time clock);
 use Try::Tiny;
+use Class::MOP;
 
 use namespace::autoclean;
 
@@ -83,19 +84,25 @@ foreach my $counter qw(hit_count miss_count) {
 sub miss_rate {
     my $self = shift;
 
-    $self->miss_count / $self->query_count;
+    try { $self->miss_count / $self->query_count };
 }
 
 sub hit_rate {
     my $self = shift;
 
-    $self->hit_count / $self->query_count;
+    try { $self->hit_count / $self->query_count };
 }
 
 # query count is individual keys
 sub query_count {
     my $self = shift;
-    $self->hit_count + $self->miss_count;
+
+    my $hit = $self->hit_count;
+    my $miss = $self->miss_count;
+
+    return unless defined($hit) and defined($miss);
+
+    return $hit+$miss;
 }
 
 sub hit { shift->_trace( hit => @_ ) }
@@ -219,11 +226,25 @@ sub reset {
     $self->reset_miss_count;
 }
 
+sub speedup {
+    my $self = shift;
+
+    my $miss = $self->total_real_time_miss;
+
+    my $sum = $self->total_real_time_all;
+
+    my $cache_overhead = $sum - $miss;
+
+    my $estimated_without_cache = $miss * ( 1 / $self->miss_rate );
+
+    return ( $sum / $estimated_without_cache );
+}
+
 sub report {
     my $self = shift;
 
     my $report = "";
-    
+
     if ( $self->hit_count ) {
         $report .= sprintf "Hit rate: %0.2f%% (%d/%d)\n", ( $self->hit_rate * 100 ), $self->hit_count, $self->query_count;
     }
@@ -266,6 +287,19 @@ sub report {
     }
 
     return $report;
+}
+
+sub moniker {
+    my $self = shift;
+
+    if ( my $meta = Class::MOP::class_of($self->cache) ) {
+        # CHI drivers
+        foreach my $class ( $meta->linearized_isa ) {
+            return $class unless Class::MOP::class_of($class)->is_anon_class;
+        }
+    }
+
+    return ref($self->cache);
 }
 
 __PACKAGE__->meta->make_immutable;
@@ -359,7 +393,7 @@ Standard cache API methods.
 
 =item report
 
-Returns a simple report as a string.
+Returns a simple report as a human readable string.
 
 =item {average,total}_{real,cpu}_time_{get,set,miss,all}
 
@@ -385,6 +419,15 @@ may be bigger than C<call_count_get>.
 
 Returns the number of keys whose corresponding return values from C<get> were
 defined or C<undef>, respectively.
+
+=item speedup
+
+Returns the actual time elapsed using caching divided the estimated time to
+compute all values (based on the average time to compute cache misses).
+
+Smaller is better.
+
+If the overhead of C<get> and C<set> is higher, this will be bigger than 1.
 
 =item reset
 
