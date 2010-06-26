@@ -80,11 +80,6 @@ try {
 };
 
 try {
-    require Cache::Memory;
-    push @more, Cache::Memory->new();
-};
-
-try {
     require Cache::MemoryCache;
     push @more, Cache::MemoryCache->new();
 };
