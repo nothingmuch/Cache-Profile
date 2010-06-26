@@ -108,9 +108,16 @@ until ( (clock() > $end) and $i > @keys * 3 ) {
     my $key = $keys[rand > 0.7 ? int rand @keys : $i++ % @keys];
 
     foreach my $cache ( $p_fifo, $p_lru, $cmp ) {
-        unless ( $cache->get($key) ) {
-            _waste_time();
-            $cache->set( $key => rand > 0.5 ? { foo => "bar", data => [ 1 .. 10 ] } : "blahblah" );
+        if ( rand > 0.5 ) {
+            unless ( $cache->get($key) ) {
+                _waste_time();
+                $cache->set( $key => rand > 0.5 ? { foo => "bar", data => [ 1 .. 10 ] } : "blahblah" );
+            }
+        } else {
+            $cache->compute( $key, sub {
+                _waste_time();
+                return rand > 0.5 ? { foo => "bar", data => [ 1 .. 10 ] } : "blahblah";
+            });
         }
     }
 
@@ -120,7 +127,6 @@ until ( (clock() > $end) and $i > @keys * 3 ) {
         _waste_time();
         return rand > 0.5 ? { foo => "bar", data => [ 1 .. 10 ] } : "blahblah";
     });
-
 }
 
 is( $p_cart->call_count_get, $get, "get count" );
@@ -157,6 +163,10 @@ foreach my $cache ( $p_cart, $p_lru, $cmp->profiles ) {
 
 cmp_ok( $p_cart->hit_rate, '>', $p_lru->hit_rate, "CART beats LRU" );
 cmp_ok( $p_lru->hit_rate,  '>', $p_fifo->hit_rate, "LRU beats FIFO" );
+
+$p_lru->set(foo => 42);
+$p_lru->clear;
+is( $p_lru->get("foo"), undef );
 
 done_testing;
 
