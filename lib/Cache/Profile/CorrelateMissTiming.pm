@@ -1,6 +1,7 @@
 package Cache::Profile::CorrelateMissTiming;
 use Moose;
 
+use Guard;
 use Time::HiRes qw(tv_interval clock gettimeofday);
 
 use namespace::autoclean;
@@ -17,6 +18,23 @@ has _last_get_timing => (
     },
 );
 
+has _in_compute => (
+    isa => "Bool",
+    is  => "rw",
+);
+
+sub compute {
+    my $self = shift;
+
+    scope_guard {
+        $self->_in_compute(0);
+    };
+
+    $self->_in_compute(1);
+
+    $self->SUPER::compute(@_);
+}
+
 sub clear {
     my $self = shift;
 
@@ -29,6 +47,8 @@ sub _record_get {
     my ( $self, %args ) = @_;
 
     $self->SUPER::_record_get(%args);
+
+    return if $self->_in_compute;
 
     my ( @keys, @ret );
 
@@ -60,26 +80,28 @@ sub _record_get {
 sub _record_set {
     my ( $self, %args ) = @_;
 
-    my %pairs = @{ $args{args} };
-    
-    foreach my $key ( keys %pairs ) {
-        if ( my $start_timing = $self->_missed_key($key) ) {
-            my $set_timing = $args{timing};
+    unless ( $self->_in_compute ) {
+        my %pairs = @{ $args{args} };
 
-            my %timing = (
-                start_c => $start_timing->{start_c},
-                end_c => $set_timing->{start_c},
-                time_c => $set_timing->{start_c} - $start_timing->{start_c},
-                start_r => $start_timing->{start_r},
-                end_r => $set_timing->{end_r},
-                time_r => tv_interval($start_timing->{start_r}, $set_timing->{end_r}),
-            );
-            
-            $self->_record_miss(
-                %args,
-                counter => "miss",
-                timing => \%timing,
-            );
+        foreach my $key ( keys %pairs ) {
+            if ( my $start_timing = $self->_missed_key($key) ) {
+                my $set_timing = $args{timing};
+
+                my %timing = (
+                    start_c => $start_timing->{start_c},
+                    end_c => $set_timing->{start_c},
+                    time_c => $set_timing->{start_c} - $start_timing->{start_c},
+                    start_r => $start_timing->{start_r},
+                    end_r => $set_timing->{end_r},
+                    time_r => tv_interval($start_timing->{start_r}, $set_timing->{end_r}),
+                );
+
+                $self->_record_miss(
+                    %args,
+                    counter => "miss",
+                    timing => \%timing,
+                );
+            }
         }
     }
 
