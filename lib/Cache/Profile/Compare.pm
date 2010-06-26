@@ -1,6 +1,8 @@
 package Cache::Profile::Compare;
 use Moose;
 
+use Carp qw(croak);
+
 use Cache::Profile::CorrelateMissTiming;
 
 use namespace::autoclean;
@@ -15,7 +17,7 @@ has profile_class => (
 has caches => (
     traits => [qw(Array)],
     isa => "ArrayRef[Object]",
-    required => 1,
+    predicate => "has_caches",
     handles => {
         caches => "elements",
     },
@@ -32,6 +34,8 @@ has profiles => (
 
 sub _build_profiles {
     my $self = shift;
+
+    croak "'caches' or 'profiles' are required" unless $self->has_caches;
 
     [ map { $self->wrap_cache($_) } $self->caches ];
 }
@@ -111,12 +115,72 @@ __PACKAGE__->meta->make_immutable;
 
 # ex: set sw=4 et:
 
-__PACKAGE__
-
-__END__
+__PACKAGE__;
 
 =pod
 
 =head1 NAME
 
+Cache::Profile::Compare - compare several caches
 
+=head1 SYNOPSIS
+
+    my $c = Cache::Profile::Compare->new(
+        caches => [
+            Cache::Bounded->new({ interval => 256, size => 1024 }),
+            Cache::Ref::LRU->new( size => 1024 ),
+            Cache::Ref::CART->new( size => 1024 ),
+        ],
+    );
+
+    # use normally
+    $c->get("foo");
+    $c->set("foo" => 42);
+
+    # reports which cache had the best hit rate, and which provided the best
+    # speedup
+    $c->report;
+
+=head1 DESCRIPTION
+
+This module lets you compare several profiles.
+
+=head1 ATTRIBUTES
+
+=over 4
+
+=item caches
+
+The caches to profile
+
+=item profiles
+
+A lazy built list of L<Cache::Profile> or
+L<Cache::Profile::CorrelateMissTiming> objects based on C<caches>.
+
+Can be provided explicitly if you want to create your own profiler objects.
+
+=item profile_class
+
+Defaults to L<Cache::Profile::CorrelateMissTiming>.
+
+=back
+
+=head1 METHODS
+
+=over 4
+
+=item report
+
+Prints the reports of the cache with the largest speedup and the cache with the
+best hit rate.
+
+=item by_speedup
+
+Returns the caches sorted by speedup.
+
+=item by_hit_rate
+
+Returns the caches sorted by hit rate.
+
+=back

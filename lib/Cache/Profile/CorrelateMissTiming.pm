@@ -110,11 +110,7 @@ sub _record_set {
 
 __PACKAGE__->meta->make_immutable;
 
-# ex: set sw=4 et:
-
-__PACKAGE__
-
-__END__
+__PACKAGE__;
 
 =pod
 
@@ -140,3 +136,7 @@ only really useful when the cost of a cache miss is more than a simple
 computation.
 
 Otherwise it works exactly like C<Cache::Profile>
+
+=cut
+
+# ex: set sw=4 et:

@@ -304,11 +304,7 @@ sub moniker {
 
 __PACKAGE__->meta->make_immutable;
 
-# ex: set sw=4 et:
-
-__PACKAGE__
-
-__END__
+__PACKAGE__;
 
 =pod
 
@@ -434,3 +430,8 @@ If the overhead of C<get> and C<set> is higher, this will be bigger than 1.
 Resets the counters/timers.
 
 =back
+
+=cut
+
+# ex: set sw=4 et:
+
