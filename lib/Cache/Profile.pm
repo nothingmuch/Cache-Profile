@@ -22,6 +22,12 @@ sub AUTOLOAD {
     $self->cache->$method(@_);
 }
 
+sub isa {
+    my ( $self, $class ) = @_;
+
+    $self->SUPER::isa($class) or $self->cache->isa($class);
+}
+
 my @timer_names = qw(hit get set miss);
 
 sub timer_names { @timer_names }
