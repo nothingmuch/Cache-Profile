@@ -46,7 +46,7 @@ foreach my $method ( "all", @timer_names ) {
         },
     );
 
-    foreach my $measure qw(real cpu) {
+    foreach my $measure ( qw(real cpu) )  {
         my $time = "total_${measure}_time_${method}";
         has $time => (
             traits => [qw(Number)],
